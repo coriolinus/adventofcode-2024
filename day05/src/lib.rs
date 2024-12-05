@@ -142,6 +142,8 @@ pub fn part1(input: &Path) -> Result<(), Error> {
 pub fn part2(input: &Path) -> Result<(), Error> {
     let (ordering_rules, mut print_jobs) = parse(input)?;
 
+    let mut swaps = 0;
+
     // retain only incorrectly ordered jobs
     print_jobs.retain(|job| !job.satisfies_rules(&ordering_rules));
     for job in print_jobs.iter_mut() {
@@ -168,10 +170,13 @@ pub fn part2(input: &Path) -> Result<(), Error> {
                     .expect("relevant jobs contain the later rule");
                 if p_idx > l_idx {
                     job.pages.swap(p_idx, l_idx);
+                    swaps += 1;
                 }
             }
         }
     }
+
+    println!("total swaps: {swaps}");
 
     let middle_page_sum = print_jobs.iter().map(PrintJob::middle_number).sum::<Page>();
 
