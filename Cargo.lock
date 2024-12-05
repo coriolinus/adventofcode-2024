@@ -106,7 +106,7 @@ dependencies = [
  "itertools 0.12.1",
  "lazy_static",
  "num",
- "parse-display",
+ "parse-display 0.8.2",
  "regex",
  "reqwest",
  "serde",
@@ -429,6 +429,17 @@ dependencies = [
  "clap",
  "color-eyre",
  "derive_more",
+ "thiserror",
+]
+
+[[package]]
+name = "day05"
+version = "0.1.0"
+dependencies = [
+ "aoclib",
+ "clap",
+ "color-eyre",
+ "parse-display 0.10.0",
  "thiserror",
 ]
 
@@ -1336,8 +1347,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c6509d08722b53e8dafe97f2027b22ccbe3a5db83cb352931e9716b0aa44bc5c"
 dependencies = [
  "once_cell",
- "parse-display-derive",
+ "parse-display-derive 0.8.2",
  "regex",
+]
+
+[[package]]
+name = "parse-display"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "287d8d3ebdce117b8539f59411e4ed9ec226e0a4153c7f55495c6070d68e6f72"
+dependencies = [
+ "parse-display-derive 0.10.0",
+ "regex",
+ "regex-syntax 0.8.5",
 ]
 
 [[package]]
@@ -1351,7 +1373,21 @@ dependencies = [
  "quote",
  "regex",
  "regex-syntax 0.7.5",
- "structmeta",
+ "structmeta 0.2.0",
+ "syn",
+]
+
+[[package]]
+name = "parse-display-derive"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7fc048687be30d79502dea2f623d052f3a074012c6eac41726b7ab17213616b1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "regex",
+ "regex-syntax 0.8.5",
+ "structmeta 0.3.0",
  "syn",
 ]
 
@@ -1793,7 +1829,19 @@ checksum = "78ad9e09554f0456d67a69c1584c9798ba733a5b50349a6c0d0948710523922d"
 dependencies = [
  "proc-macro2",
  "quote",
- "structmeta-derive",
+ "structmeta-derive 0.2.0",
+ "syn",
+]
+
+[[package]]
+name = "structmeta"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e1575d8d40908d70f6fd05537266b90ae71b15dbbe7a8b7dffa2b759306d329"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "structmeta-derive 0.3.0",
  "syn",
 ]
 
@@ -1802,6 +1850,17 @@ name = "structmeta-derive"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a60bcaff7397072dca0017d1db428e30d5002e00b6847703e2e42005c95fbe00"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "structmeta-derive"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "152a0b65a590ff6c3da95cabe2353ee04e6167c896b28e3b14478c2636c922fc"
 dependencies = [
  "proc-macro2",
  "quote",
