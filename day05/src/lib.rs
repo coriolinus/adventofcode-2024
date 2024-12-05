@@ -5,12 +5,12 @@ type Page = u32;
 
 #[derive(Debug, Clone, Copy, Hash, parse_display::FromStr, parse_display::Display)]
 #[display("{prior}|{later}")]
-struct PageOrder {
+struct OrderingRule {
     prior: Page,
     later: Page,
 }
 
-impl PageOrder {
+impl OrderingRule {
     fn checker(&self) -> PageOrderChecker {
         PageOrderChecker {
             order: self,
@@ -21,11 +21,11 @@ impl PageOrder {
 }
 
 #[derive(Debug, Clone)]
-struct UpdatePages {
+struct PrintJob {
     pages: Vec<Page>,
 }
 
-impl FromStr for UpdatePages {
+impl FromStr for PrintJob {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -38,10 +38,10 @@ impl FromStr for UpdatePages {
     }
 }
 
-impl UpdatePages {
-    fn satisfies_rules(&self, rules: &[PageOrder]) -> bool {
+impl PrintJob {
+    fn satisfies_rules(&self, rules: &[OrderingRule]) -> bool {
         let mut checkers = Vec::with_capacity(rules.len());
-        checkers.extend(rules.iter().map(PageOrder::checker));
+        checkers.extend(rules.iter().map(OrderingRule::checker));
 
         for page in self.pages.iter().copied() {
             for checker in checkers.iter_mut() {
@@ -73,7 +73,7 @@ enum RuleOutcome {
 }
 
 struct PageOrderChecker<'a> {
-    order: &'a PageOrder,
+    order: &'a OrderingRule,
     first_match: Option<Page>,
     second_match: Option<Page>,
 }
@@ -112,35 +112,71 @@ impl<'a> PageOrderChecker<'a> {
     }
 }
 
-fn parse(input: &Path) -> Result<(Vec<PageOrder>, Vec<UpdatePages>), Error> {
+fn parse(input: &Path) -> Result<(Vec<OrderingRule>, Vec<PrintJob>), Error> {
     let data = std::fs::read_to_string(input)?;
     let (before, after) = data.split_once("\n\n").ok_or(Error::InvalidInput)?;
-    let page_orders = before
+    let ordering_rules = before
         .lines()
-        .map(PageOrder::from_str)
+        .map(OrderingRule::from_str)
         .collect::<Result<_, _>>()
         .map_err(|_| Error::InvalidInput)?;
-    let update_pages = after
+    let print_jobs = after
         .lines()
-        .map(UpdatePages::from_str)
+        .map(PrintJob::from_str)
         .collect::<Result<_, _>>()?;
-    Ok((page_orders, update_pages))
+    Ok((ordering_rules, print_jobs))
 }
 
 pub fn part1(input: &Path) -> Result<(), Error> {
-    let (page_orders, update_pages) = parse(input)?;
+    let (ordering_rules, print_jobs) = parse(input)?;
 
-    let middle_page_sum = update_pages
+    let middle_page_sum = print_jobs
         .iter()
-        .filter(|print_job| print_job.satisfies_rules(&page_orders))
-        .map(UpdatePages::middle_number)
+        .filter(|print_job| print_job.satisfies_rules(&ordering_rules))
+        .map(PrintJob::middle_number)
         .sum::<Page>();
     println!("sum of middle pages: {middle_page_sum}");
     Ok(())
 }
 
 pub fn part2(input: &Path) -> Result<(), Error> {
-    unimplemented!("input file: {:?}", input)
+    let (ordering_rules, mut print_jobs) = parse(input)?;
+
+    // retain only incorrectly ordered jobs
+    print_jobs.retain(|job| !job.satisfies_rules(&ordering_rules));
+    for job in print_jobs.iter_mut() {
+        let relevant_rules =
+            {
+                let mut rr = Vec::with_capacity(ordering_rules.len());
+                rr.extend(ordering_rules.iter().filter(|rule| {
+                    job.pages.contains(&rule.prior) && job.pages.contains(&rule.later)
+                }));
+                rr
+            };
+
+        while !job.satisfies_rules(&relevant_rules) {
+            for rule in &relevant_rules {
+                let p_idx = job
+                    .pages
+                    .iter()
+                    .position(|page| *page == rule.prior)
+                    .expect("relevant jobs contain the prior rule");
+                let l_idx = job
+                    .pages
+                    .iter()
+                    .position(|page| *page == rule.later)
+                    .expect("relevant jobs contain the later rule");
+                if p_idx > l_idx {
+                    job.pages.swap(p_idx, l_idx);
+                }
+            }
+        }
+    }
+
+    let middle_page_sum = print_jobs.iter().map(PrintJob::middle_number).sum::<Page>();
+
+    println!("sum of previously-incorrect middle pages, after reordering: {middle_page_sum}");
+    Ok(())
 }
 
 #[derive(Debug, thiserror::Error)]
