@@ -78,7 +78,7 @@ struct PageOrderChecker<'a> {
     second_match: Option<Page>,
 }
 
-impl<'a> PageOrderChecker<'a> {
+impl PageOrderChecker<'_> {
     fn outcome(&self) -> RuleOutcome {
         match (self.first_match, self.second_match) {
             (Some(first), Some(second))
