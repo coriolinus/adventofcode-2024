@@ -1,6 +1,6 @@
 use aoclib::geometry::{tile::DisplayWidth, Direction, MapConversionErr, Point};
+use rayon::{iter::ParallelBridge, prelude::ParallelIterator};
 use std::{
-    collections::HashSet,
     ops::{Index, IndexMut},
     path::Path,
 };
@@ -64,7 +64,7 @@ impl IndexMut<Direction> for VisitRecorder {
 type Map = aoclib::geometry::map::Map<Tile>;
 type Visited = aoclib::geometry::map::Map<VisitRecorder>;
 
-#[derive(parse_display::Display)]
+#[derive(Debug, Clone, parse_display::Display)]
 #[display("G({position.x},{position.y};{orientation:?})")]
 struct Guard {
     position: Point,
@@ -113,18 +113,33 @@ pub fn part1(input: &Path) -> Result<(), Error> {
     Ok(())
 }
 
-/// `true` when an immediate right turn from this position would encounter a path we have previously visited
-fn obstacle_ahead_succeeds(guard: &Guard, map: &Map, visited: &Visited) -> bool {
-    let orientation = guard.orientation.turn_right();
-    let (dx, dy) = orientation.deltas();
-    for point in map.project(guard.position, dx, dy) {
-        if map[point] == Tile::Obstruction {
-            return false;
-        }
-        if visited[point].is_set(orientation) {
+fn produces_infinite_loop_with_additional_obstacle(
+    mut guard: Guard,
+    map: &Map,
+    additional_obstacle: Point,
+) -> bool {
+    if map[additional_obstacle] != Tile::Blank {
+        return false;
+    }
+
+    let mut visited = Visited::new(map.width(), map.height());
+
+    while map.in_bounds(guard.position) {
+        if visited[guard.position].is_set(guard.orientation) {
             return true;
         }
+        visited[guard.position].set(guard.orientation);
+        let forward = guard.position + guard.orientation;
+
+        if forward == additional_obstacle
+            || (map.in_bounds(forward) && map[forward] == Tile::Obstruction)
+        {
+            guard.orientation = guard.orientation.turn_right();
+        } else {
+            guard.position = forward;
+        }
     }
+
     false
 }
 
@@ -143,27 +158,20 @@ pub fn part2(input: &Path) -> Result<(), Error> {
             break;
         }
     }
-    let mut guard = guard.ok_or(Error::GuardNotFound)?;
-    let mut visited = Visited::new(map.width(), map.height());
+    let guard = guard.ok_or(Error::GuardNotFound)?;
 
-    let mut obstacle_insertion_positions = HashSet::new();
-
-    while map.in_bounds(guard.position) {
-        visited[guard.position].set(guard.orientation);
-        let forward = guard.position + guard.orientation;
-
-        if obstacle_ahead_succeeds(&guard, &map, &visited) {
-            obstacle_insertion_positions.insert(forward);
-        }
-
-        if map.in_bounds(forward) && map[forward] == Tile::Obstruction {
-            guard.orientation = guard.orientation.turn_right();
-        } else {
-            guard.position = forward;
-        }
-    }
-
-    let new_obstacles = obstacle_insertion_positions.len();
+    let new_obstacles = map
+        .iter()
+        .map(|(position, _)| position)
+        .par_bridge()
+        .filter(|additional_obstacle| {
+            produces_infinite_loop_with_additional_obstacle(
+                guard.clone(),
+                &map,
+                *additional_obstacle,
+            )
+        })
+        .count();
     println!("potential new obstacles: {new_obstacles}");
 
     Ok(())
