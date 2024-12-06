@@ -1,8 +1,8 @@
-use aoclib::geometry::{
-    tile::{Bool, DisplayWidth},
-    Direction, MapConversionErr, Point,
+use aoclib::geometry::{tile::DisplayWidth, Direction, MapConversionErr, Point};
+use std::{
+    ops::{Index, IndexMut},
+    path::Path,
 };
-use std::path::Path;
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, parse_display::FromStr, parse_display::Display,
@@ -20,8 +20,48 @@ impl DisplayWidth for Tile {
     const DISPLAY_WIDTH: usize = 1;
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct VisitRecorder([bool; 4]);
+
+impl VisitRecorder {
+    fn direction_idx(index: Direction) -> usize {
+        match index {
+            Direction::Right => 0,
+            Direction::Left => 1,
+            Direction::Up => 2,
+            Direction::Down => 3,
+        }
+    }
+
+    fn set(&mut self, direction: Direction) {
+        self[direction] = true;
+    }
+
+    fn is_set(&self, direction: Direction) -> bool {
+        self[direction]
+    }
+
+    fn is_visited(&self) -> bool {
+        Direction::iter().any(|direction| self.is_set(direction))
+    }
+}
+
+impl Index<Direction> for VisitRecorder {
+    type Output = bool;
+
+    fn index(&self, index: Direction) -> &Self::Output {
+        &self.0[Self::direction_idx(index)]
+    }
+}
+
+impl IndexMut<Direction> for VisitRecorder {
+    fn index_mut(&mut self, index: Direction) -> &mut Self::Output {
+        &mut self.0[Self::direction_idx(index)]
+    }
+}
+
 type Map = aoclib::geometry::map::Map<Tile>;
-type Visited = aoclib::geometry::map::Map<Bool>;
+type Visited = aoclib::geometry::map::Map<VisitRecorder>;
 
 #[derive(parse_display::Display)]
 #[display("G({position.x},{position.y};{orientation:?})")]
@@ -52,7 +92,7 @@ pub fn part1(input: &Path) -> Result<(), Error> {
     let mut visited = Visited::new(map.width(), map.height());
 
     while map.in_bounds(guard.position) {
-        visited[guard.position] = true.into();
+        visited[guard.position].set(guard.orientation);
         let forward = guard.position + guard.orientation;
         // eprintln!(
         //     "{guard} facing {}@({},{})",
@@ -66,16 +106,17 @@ pub fn part1(input: &Path) -> Result<(), Error> {
         }
     }
 
-    let visited_count = visited
-        .iter()
-        .filter(|(_, tile)| bool::from(**tile))
-        .count();
+    let visited_count = visited.iter().filter(|(_, tile)| tile.is_visited()).count();
     println!("visited locations: {visited_count}");
 
     Ok(())
 }
 
 pub fn part2(input: &Path) -> Result<(), Error> {
+    // plan: keep track of previously visited, not just boolean, but a stack of directions
+    // at each position, project what would happen if we turned right, right now
+    // if we encounter a place where we'd be proceeding along the current dirction before hitting
+    // an obstacle or leaving the map, then the current forward could become the location of an obstacle
     unimplemented!("input file: {:?}", input)
 }
 
