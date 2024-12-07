@@ -488,6 +488,7 @@ dependencies = [
  "clap",
  "color-eyre",
  "parse-display 0.10.0",
+ "rstest",
  "thiserror",
 ]
 
