@@ -1,9 +1,6 @@
 use aoclib::geometry::{tile::DisplayWidth, Direction, MapConversionErr, Point};
 use rayon::{iter::ParallelBridge, prelude::ParallelIterator};
-use std::{
-    ops::{Index, IndexMut},
-    path::Path,
-};
+use std::path::Path;
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, parse_display::FromStr, parse_display::Display,
@@ -22,7 +19,7 @@ impl DisplayWidth for Tile {
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-struct VisitRecorder([bool; 4]);
+struct VisitRecorder(u8);
 
 impl VisitRecorder {
     fn direction_idx(index: Direction) -> usize {
@@ -35,29 +32,15 @@ impl VisitRecorder {
     }
 
     fn set(&mut self, direction: Direction) {
-        self[direction] = true;
+        self.0 |= 1 << Self::direction_idx(direction);
     }
 
     fn is_set(&self, direction: Direction) -> bool {
-        self[direction]
+        self.0 & (1 << Self::direction_idx(direction)) != 0
     }
 
     fn is_visited(&self) -> bool {
-        Direction::iter().any(|direction| self.is_set(direction))
-    }
-}
-
-impl Index<Direction> for VisitRecorder {
-    type Output = bool;
-
-    fn index(&self, index: Direction) -> &Self::Output {
-        &self.0[Self::direction_idx(index)]
-    }
-}
-
-impl IndexMut<Direction> for VisitRecorder {
-    fn index_mut(&mut self, index: Direction) -> &mut Self::Output {
-        &mut self.0[Self::direction_idx(index)]
+        self.0 != 0
     }
 }
 
