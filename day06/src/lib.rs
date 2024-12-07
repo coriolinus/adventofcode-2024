@@ -126,13 +126,7 @@ fn produces_infinite_loop_with_additional_obstacle(
     false
 }
 
-// too low: 413
-// too low: 416
 pub fn part2(input: &Path) -> Result<(), Error> {
-    // plan: keep track of previously visited, not just boolean, but a stack of directions
-    // at each position, project what would happen if we turned right, right now
-    // if we encounter a place where we'd be proceeding along the current dirction before hitting
-    // an obstacle or leaving the map, then the current forward could become the location of an obstacle
     let map = <Map as TryFrom<&Path>>::try_from(input)?;
     let mut guard = None;
     for (position, tile) in map.iter() {
