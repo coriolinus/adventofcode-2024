@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use dlv_list::VecList;
+use dlv_list::{Index, VecList};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::EnumIs)]
 enum Block {
@@ -8,20 +8,21 @@ enum Block {
     Free,
 }
 
+#[derive(Debug)]
 struct FilesystemEntry {
     item: Block,
-    size: u8,
+    size: u16,
 }
 
 impl FilesystemEntry {
-    fn new(item: Block, size: u8) -> Self {
+    fn new(item: Block, size: u16) -> Self {
         Self { item, size }
     }
 
     /// Split the front `size` of self into a new item with zeroized pointers.
     ///
     /// The current item has its size reduced by `size` but remains in place.
-    fn split_at(mut self, size: u8) -> (Self, Self) {
+    fn split_at(mut self, size: u16) -> (Self, Self) {
         debug_assert!(self.size > size);
         let front = Self::new(self.item, size);
         self.size -= size;
@@ -52,7 +53,7 @@ fn fs_from_str(s: &str) -> Result<Filesystem, Error> {
         }
         is_file = !is_file;
 
-        fs.push_back(FilesystemEntry::new(block, size));
+        fs.push_back(FilesystemEntry::new(block, size.into()));
     }
 
     Ok(fs)
@@ -90,8 +91,10 @@ fn compact_filesystem(fs: &mut Filesystem) -> Result<(), Error> {
             // off the back, which therefore means that we're done now
             break;
         };
+
         #[cfg(test)]
         eprintln!("{}", fs_to_str(fs));
+
         if free.item.is_file() {
             if let Some(next) = fs.get_next_index(cursor) {
                 cursor = next;
@@ -147,6 +150,151 @@ fn compact_filesystem(fs: &mut Filesystem) -> Result<(), Error> {
     Ok(())
 }
 
+/// Remove a file from the filesystem, returning both it and the index of the free space replacing it.
+///
+/// This function also scans for adjacent free space in the filesystem and consolidates it,
+/// preserving the pattern that no two files have more than one free space between them,
+/// and also preserving the total number of blocks in the filesystem.
+fn remove_file(
+    fs: &mut Filesystem,
+    cursor: Index<FilesystemEntry>,
+) -> (FilesystemEntry, Index<FilesystemEntry>) {
+    let out = FilesystemEntry::new(fs[cursor].item, fs[cursor].size);
+    fs[cursor].item = Block::Free;
+
+    let mut leftmost_free = cursor;
+    while let Some(peek) = fs.get_previous_index(leftmost_free) {
+        if fs[peek].item.is_free() {
+            leftmost_free = peek;
+        } else {
+            break;
+        }
+    }
+
+    let mut rightmost_free = cursor;
+    while let Some(peek) = fs.get_next_index(rightmost_free) {
+        if fs[peek].item.is_free() {
+            rightmost_free = peek;
+        } else {
+            break;
+        }
+    }
+
+    let left_of_leftmost_free = fs.get_previous_index(leftmost_free);
+    let mut total_free_space = 0;
+    let mut cursor = leftmost_free;
+    loop {
+        let next = (cursor != rightmost_free).then(|| {
+            fs.get_next_index(cursor)
+                .expect("cursor was left of rightmost free")
+        });
+
+        let entry = fs.remove(cursor).expect("cursor must still be valid");
+        debug_assert!(entry.item.is_free());
+        total_free_space += entry.size;
+
+        match next {
+            Some(next) => cursor = next,
+            None => break,
+        }
+    }
+
+    let consolidated_free_space = FilesystemEntry::new(Block::Free, total_free_space);
+    let idx = match left_of_leftmost_free {
+        Some(idx) => fs.insert_after(idx, consolidated_free_space),
+        None => fs.push_front(consolidated_free_space),
+    };
+
+    (out, idx)
+}
+
+fn compact_filesystem_no_fragments(fs: &mut Filesystem) -> Result<(), Error> {
+    let mut lowest_checked_file_id = !0;
+    let mut cursor = fs.back_index().ok_or(Error::NoSolution)?;
+
+    loop {
+        macro_rules! cursor_continue {
+            () => {
+                match fs.get_previous_index(cursor) {
+                    Some(prev) => cursor = prev,
+                    None => break,
+                }
+                continue;
+            };
+        }
+
+        let entry = &fs[cursor];
+        match entry.item {
+            Block::Free => {
+                cursor_continue!();
+            }
+            Block::File(id) if id >= lowest_checked_file_id => {
+                cursor_continue!();
+            }
+            Block::File(id) => lowest_checked_file_id = id,
+        }
+
+        #[cfg(test)]
+        eprintln!("{}; ({:?}, {})", fs_to_str(fs), entry.item, entry.size);
+
+        // cursor is now pointing at the highest-id file we have not yet examined
+        // we have to scan from the start to find a block where it might fit\
+
+        // we can't actually keep the free idx here, as removing a file can then invalidate it.
+        // but we want to check here, before we actually remove the file. So let's duplicate some work!
+        let mut encountered_self = false;
+        if !fs.indices().any(|idx| {
+            encountered_self |= idx == cursor;
+            !encountered_self && fs[idx].item.is_free() && fs[idx].size >= entry.size
+        }) {
+            cursor_continue!();
+        };
+
+        // found a free spot that's big enough
+        // get the next cursor here, in case removing the entry messes with it
+        let (entry, free_cursor) = remove_file(fs, cursor);
+
+        // re-find the free space to get a known-good index
+        encountered_self = false;
+        let free_idx = fs
+            .indices()
+            .find(|&idx| {
+                encountered_self |= idx == cursor;
+                !encountered_self && fs[idx].item.is_free() && fs[idx].size >= entry.size
+            })
+            .expect("we found enough free space before, we should find it again");
+
+        match entry.size.cmp(&fs[free_idx].size) {
+            std::cmp::Ordering::Less => {
+                fs[free_idx].size -= entry.size;
+                fs.insert_before(free_idx, entry);
+            }
+            std::cmp::Ordering::Equal => {
+                fs[free_idx] = entry;
+            }
+            std::cmp::Ordering::Greater => {
+                unreachable!("we just checked that free size >= entry size")
+            }
+        }
+
+        match fs.get_previous_index(free_cursor) {
+            Some(next) => cursor = next,
+            None => break,
+        }
+    }
+
+    // cleanup trailing free space
+    while let Some(back) = fs.back() {
+        if back.item.is_free() {
+            fs.pop_back();
+        } else {
+            break;
+        }
+    }
+
+    Ok(())
+}
+
 fn checksum(fs: &Filesystem) -> u64 {
     let mut sum = 0;
     let mut position = 0;
@@ -173,7 +321,14 @@ pub fn part1(input: &Path) -> Result<(), Error> {
 }
 
 pub fn part2(input: &Path) -> Result<(), Error> {
-    unimplemented!("input file: {:?}", input)
+    let data = std::fs::read_to_string(input)?;
+    let mut fs = fs_from_str(data.trim())?;
+
+    compact_filesystem_no_fragments(&mut fs)?;
+    let checksum = checksum(&fs);
+    println!("checksum, no fragments: {checksum}");
+
+    Ok(())
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -215,5 +370,13 @@ mod tests {
         compact_filesystem(&mut fs).unwrap();
         assert_eq!(fs_to_str(&fs), "0099811188827773336446555566");
         assert_eq!(checksum(&fs), 1928);
+    }
+
+    #[test]
+    fn compact_long_no_fragments_example() {
+        let mut fs = fs_from_str("2333133121414131402").unwrap();
+        compact_filesystem_no_fragments(&mut fs).unwrap();
+        assert_eq!(fs_to_str(&fs), "00992111777.44.333....5555.6666.....8888");
+        assert_eq!(checksum(&fs), 2858);
     }
 }
