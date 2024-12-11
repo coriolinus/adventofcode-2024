@@ -46,11 +46,10 @@ type StoneCounts = HashMap<Stone, u64>;
 
 fn blink(out: impl IntoIterator<Item = (Stone, u64)>, into: &mut StoneCounts) {
     for (mut stone, count) in out.into_iter() {
-        let next = stone.apply_rules();
-        *into.entry(stone).or_default() += count;
-        if let Some(next) = next {
+        if let Some(next) = stone.apply_rules() {
             *into.entry(next).or_default() += count;
         }
+        *into.entry(stone).or_default() += count;
     }
 }
 
