@@ -1,6 +1,6 @@
 use aoclib::geometry::{tile::DisplayWidth, Direction, Point};
 use color_eyre::Result;
-use std::{collections::HashSet, path::Path};
+use std::path::Path;
 
 #[derive(Debug, Clone, Copy, derive_more::FromStr, derive_more::Into)]
 struct Char(char);
@@ -64,6 +64,8 @@ impl RegionGeometry {
         let mut area = 0;
         let mut perimeter = 0;
 
+        let in_region = |point| region_map.in_bounds(point) && region_map[point] == id;
+
         for (point, tile) in region_map.iter() {
             if *tile == id {
                 if first_point.is_none() {
@@ -73,68 +75,48 @@ impl RegionGeometry {
                 area += 1;
                 perimeter += 4;
                 for direction in [Direction::Right, Direction::Down] {
-                    let adj = point + direction;
-                    if region_map.in_bounds(adj) && region_map[adj] == id {
+                    if in_region(point + direction) {
                         perimeter -= 2;
                     }
                 }
             }
         }
 
-        let in_region = |point| region_map.in_bounds(point) && region_map[point] == id;
-
         let first_point = first_point?;
-        let mut point = first_point;
-        let mut num_sides = Direction::iter()
-            .filter(|&direction| !in_region(point + direction))
-            .count() as _;
-        if num_sides < 4 {
-            // subtract 1 side because we're going to add it back in at the end
-            num_sides -= 1;
-            // start by finding the first direction which is in-region which is adjacent to a direction out of region
-            // scan probably comes from the left most times, so this should return early most times
-            let mut travel_direction = Direction::Up;
-            let mut was_in_region = { in_region(point + travel_direction.turn_left()) }; // default to kick off the search
-            for _ in 0..4 {
-                let is_in_region = in_region(point + travel_direction);
-                if is_in_region && !was_in_region {
-                    // we've found our valid initial travel direction
-                    break;
-                }
-                travel_direction = travel_direction.turn_right();
-                was_in_region = is_in_region;
-            }
 
-            // now that we have a valid point and starting direction, we can trace the perimeter (clockwise),
-            // adding sides each time we turn
-            let mut visited_points = HashSet::with_capacity(area);
-            visited_points.insert(point);
-            point += travel_direction;
-            while visited_points.len() < area {
-                if point == first_point {
-                    // we have completed a loop but not yet found all of our points, so we need to reset somehow
-                    todo!()
+        let mut num_sides = 0;
+        let count_edges =
+            |travel_direction: Direction, scan_direction: Direction, initial_point: Point| {
+                let (dx, dy) = travel_direction.deltas();
+                let mut was_edge = false;
+                let mut point_was_in_region = false;
+                let mut edges = 0;
+
+                for point in region_map.project(initial_point, dx, dy) {
+                    let point_is_in_region = in_region(point);
+                    let is_edge = point_is_in_region != in_region(point + scan_direction);
+
+                    if is_edge && (!was_edge || point_is_in_region != point_was_in_region) {
+                        edges += 1;
+                    }
+
+                    was_edge = is_edge;
+                    point_was_in_region = point_is_in_region;
                 }
-                if in_region(point + travel_direction.turn_left()) {
-                    travel_direction = travel_direction.turn_left();
-                    num_sides += 1;
-                } else if in_region(point + travel_direction) {
-                    // no change in number of sides or travel direction, but we need to catch the case
-                } else if in_region(point + travel_direction.turn_right()) {
-                    travel_direction = travel_direction.turn_right();
-                    num_sides += 1;
-                } else {
-                    travel_direction = travel_direction.reverse();
-                    num_sides += 2;
-                }
-                visited_points.insert(point);
-                point += travel_direction;
-            }
+
+                edges
+            };
+
+        // projecting up from the bottom, find all edges according to each projection
+        num_sides += count_edges(Direction::Up, Direction::Left, region_map.bottom_left());
+        for point in region_map.edge(Direction::Down) {
+            num_sides += count_edges(Direction::Up, Direction::Right, point);
         }
-
-        let area = area
-            .try_into()
-            .expect("we don't overflow u32 in the number of visited points");
+        // projecting right from the left, find all edges according to the projections
+        num_sides += count_edges(Direction::Right, Direction::Down, region_map.bottom_left());
+        for point in region_map.edge(Direction::Left) {
+            num_sides += count_edges(Direction::Right, Direction::Up, point);
+        }
 
         Some(Self {
             first_point,
