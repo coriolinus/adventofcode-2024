@@ -13,15 +13,15 @@ use std::{
 #[display("Button {ident}: X+{x}, Y+{y}")]
 struct Button {
     ident: char,
-    x: u32,
-    y: u32,
+    x: i64,
+    y: i64,
 }
 
 #[derive(Debug, parse_display::FromStr)]
 #[display("Prize: X={x}, Y={y}")]
 struct Prize {
-    x: u32,
-    y: u32,
+    x: i64,
+    y: i64,
 }
 
 #[derive(Debug)]
@@ -66,12 +66,40 @@ impl FromStr for ClawMachine {
     }
 }
 
+impl ClawMachine {
+    fn solve_tokens(self) -> Option<i64> {
+        self.solve_tokens_with_offset(0, 0)
+    }
+
+    fn solve_tokens_with_offset(self, offset_x: i64, offset_y: i64) -> Option<i64> {
+        // this is straightforwardly a math problem
+        // happily, this guy is here to bring the math for us:
+        // https://www.reddit.com/r/adventofcode/comments/1hd7irq/2024_day_13_an_explanation_of_the_mathematics/
+        let ClawMachine { a, b, mut prize } = self;
+        prize.x += offset_x;
+        prize.y += offset_y;
+
+        let determinant = a.x * b.y - a.y * b.x;
+        let a_mul = (prize.x * b.y - prize.y * b.x) / determinant;
+        let b_mul = (prize.y * a.x - prize.x * a.y) / determinant;
+        (a_mul * a.x + b_mul * b.x == prize.x && a_mul * a.y + b_mul * b.y == prize.y)
+            .then_some(3 * a_mul + b_mul)
+    }
+}
+
 pub fn part1(input: &Path) -> Result<()> {
-    let parsed_inputs = parse_newline_sep::<ClawMachine>(input)?.count();
-    println!("parsed {parsed_inputs} claw machines");
+    let spent_tokens = parse_newline_sep::<ClawMachine>(input)?
+        .filter_map(ClawMachine::solve_tokens)
+        .sum::<i64>();
+    println!("spent {spent_tokens} tokens winning claw machines");
     Ok(())
 }
 
 pub fn part2(input: &Path) -> Result<()> {
-    unimplemented!("input file: {:?}", input)
+    const OFFSET: i64 = 10_000_000_000_000; // 10 trillion
+    let spent_tokens = parse_newline_sep::<ClawMachine>(input)?
+        .filter_map(|claw_machine| claw_machine.solve_tokens_with_offset(OFFSET, OFFSET))
+        .sum::<i64>();
+    println!("spent {spent_tokens} tokens winning claw machines");
+    Ok(())
 }
