@@ -581,6 +581,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "day14"
+version = "0.1.0"
+dependencies = [
+ "aoclib",
+ "clap",
+ "color-eyre 0.5.11",
+ "lazy_static",
+ "regex",
+]
+
+[[package]]
 name = "deranged"
 version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
