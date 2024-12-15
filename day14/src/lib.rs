@@ -6,7 +6,7 @@ use color_eyre::{
 use core::f64;
 use lazy_static::lazy_static;
 use regex::Regex;
-use std::{fmt, i32, path::Path, str::FromStr};
+use std::{fmt, path::Path, str::FromStr};
 
 #[derive(Debug, Clone)]
 struct Robot {

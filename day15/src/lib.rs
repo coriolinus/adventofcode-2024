@@ -69,7 +69,8 @@ fn parse(input: &Path) -> Result<(Warehouse, Vec<Movement>)> {
 fn sum_of_box_gps(map: &Warehouse) -> i32 {
     let map = map.flip_vertical();
     map.iter()
-        .filter_map(|(point, tile)| (*tile == Tile::Box).then(|| 100 * point.y + point.x))
+        .filter(|&(_point, tile)| *tile == Tile::Box)
+        .map(|(point, _tile)| 100 * point.y + point.x)
         .sum()
 }
 
