@@ -24,7 +24,55 @@ impl DisplayWidth for Tile {
     const DISPLAY_WIDTH: usize = 1;
 }
 
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Eq, parse_display::Display, parse_display::FromStr,
+)]
+enum TileWide {
+    #[default]
+    #[display(".")]
+    Empty,
+    #[display("#")]
+    Wall,
+    #[display("[")]
+    BoxLeft,
+    #[display("]")]
+    BoxRight,
+    #[display("@")]
+    Robot,
+}
+
+impl DisplayWidth for TileWide {
+    const DISPLAY_WIDTH: usize = 2;
+}
+
 type Warehouse = aoclib::geometry::Map<Tile>;
+type WarehouseWide = aoclib::geometry::Map<TileWide>;
+
+fn widen(map: Warehouse) -> WarehouseWide {
+    let mut out = WarehouseWide::new(map.width(), map.height());
+    for (point, &tile) in map.iter() {
+        let left = Point::new(point.x * 2, point.y);
+        let right = Point::new(point.x * 2 + 1, point.y);
+        match tile {
+            Tile::Empty => {
+                // default is empty
+            }
+            Tile::Robot => {
+                out[left] = TileWide::Robot;
+                // right is empty
+            }
+            Tile::Wall => {
+                out[left] = TileWide::Wall;
+                out[right] = TileWide::Wall;
+            }
+            Tile::Box => {
+                out[left] = TileWide::BoxLeft;
+                out[right] = TileWide::BoxRight;
+            }
+        }
+    }
+    out
+}
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, derive_more::Deref, derive_more::From, derive_more::Into,
@@ -74,6 +122,14 @@ fn sum_of_box_gps(map: &Warehouse) -> i32 {
         .sum()
 }
 
+fn sum_of_box_gps_wide(map: &WarehouseWide) -> i32 {
+    let map = map.flip_vertical();
+    map.iter()
+        .filter(|&(_point, tile)| *tile == TileWide::BoxLeft)
+        .map(|(point, _tile)| 100 * point.y + point.x)
+        .sum()
+}
+
 struct Robot {
     position: Point,
 }
@@ -93,6 +149,23 @@ impl Robot {
             bail!("no robots found in warehouse");
         };
         map[position] = Tile::Empty;
+        Ok(Self { position })
+    }
+
+    fn extract_from_wide(map: &mut WarehouseWide) -> Result<Self> {
+        let mut position = None;
+        for (point, tile) in map.iter() {
+            if *tile == TileWide::Robot {
+                if position.is_some() {
+                    bail!("more than one robot found in warehouse");
+                }
+                position = Some(point);
+            }
+        }
+        let Some(position) = position else {
+            bail!("no robots found in warehouse");
+        };
+        map[position] = TileWide::Empty;
         Ok(Self { position })
     }
 
@@ -132,6 +205,10 @@ impl Robot {
             debug_assert_eq!(map[self.position], Tile::Empty);
         }
     }
+
+    fn push_wide(&mut self, map: &mut WarehouseWide, movement: Movement) {
+        todo!()
+    }
 }
 
 pub fn part1(input: &Path) -> Result<()> {
@@ -146,5 +223,13 @@ pub fn part1(input: &Path) -> Result<()> {
 }
 
 pub fn part2(input: &Path) -> Result<()> {
-    unimplemented!("input file: {:?}", input)
+    let (warehouse, movements) = parse(input).context("parsing input")?;
+    let mut warehouse = widen(warehouse);
+    let mut robot = Robot::extract_from_wide(&mut warehouse)?;
+    for movement in movements {
+        robot.push_wide(&mut warehouse, movement);
+    }
+    let sum_of_gps = sum_of_box_gps_wide(&warehouse);
+    println!("sum of box gps (wide): {sum_of_gps}");
+    Ok(())
 }
