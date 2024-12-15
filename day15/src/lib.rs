@@ -1,16 +1,19 @@
-use aoclib::geometry::{tile::DisplayWidth, Direction};
+use aoclib::geometry::{tile::DisplayWidth, Direction, Point};
 use color_eyre::{
-    eyre::{eyre, Context as _},
+    eyre::{bail, eyre, Context as _, ContextCompat as _},
     Result,
 };
 use std::path::Path;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, parse_display::Display, parse_display::FromStr)]
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Eq, parse_display::Display, parse_display::FromStr,
+)]
 enum Tile {
-    #[display("#")]
-    Wall,
+    #[default]
     #[display(".")]
     Empty,
+    #[display("#")]
+    Wall,
     #[display("O")]
     Box,
     #[display("@")]
@@ -46,7 +49,7 @@ fn parse(input: &Path) -> Result<(Warehouse, Vec<Movement>)> {
     let data = std::fs::read_to_string(input).context("reading input file")?;
     let (map_data, movement_data) = data
         .split_once("\n\n")
-        .ok_or(eyre!("no double newline to separate map from movements"))?;
+        .context("no double newline to separate map from movements")?;
 
     let warehouse =
         <Warehouse as TryFrom<&str>>::try_from(map_data).context("parsing warehouse map")?;
@@ -63,9 +66,81 @@ fn parse(input: &Path) -> Result<(Warehouse, Vec<Movement>)> {
     Ok((warehouse, movements))
 }
 
+fn sum_of_box_gps(map: &Warehouse) -> i32 {
+    let map = map.flip_vertical();
+    map.iter()
+        .filter_map(|(point, tile)| (*tile == Tile::Box).then(|| 100 * point.y + point.x))
+        .sum()
+}
+
+struct Robot {
+    position: Point,
+}
+
+impl Robot {
+    fn extract_from(map: &mut Warehouse) -> Result<Self> {
+        let mut position = None;
+        for (point, tile) in map.iter() {
+            if *tile == Tile::Robot {
+                if position.is_some() {
+                    bail!("more than one robot found in warehouse");
+                }
+                position = Some(point);
+            }
+        }
+        let Some(position) = position else {
+            bail!("no robots found in warehouse");
+        };
+        map[position] = Tile::Empty;
+        Ok(Self { position })
+    }
+
+    fn push(&mut self, map: &mut Warehouse, movement: Movement) {
+        let mut encountered_a_box = false;
+        let mut empty_space = None;
+        let (dx, dy) = movement.deltas();
+        for point in map.project(self.position, dx, dy).skip(1) {
+            match map[point] {
+                Tile::Robot => unreachable!("no extra robots in map"),
+                Tile::Box => {
+                    // no problem, we can keep going, our robot is strong and can push many boxes
+                    encountered_a_box = true;
+                }
+                Tile::Wall => {
+                    // oh, no movement is possible because we're jammed up against a wall
+                    // (possibly through many boxes)
+                    return;
+                }
+                Tile::Empty => {
+                    // we can push, so therefore we must
+                    empty_space = Some(point);
+                    break;
+                }
+            }
+        }
+
+        let empty_space = empty_space.expect("we can only get to this point in the code if we found an empty space or pushed off the map");
+
+        self.position += *movement;
+        if encountered_a_box {
+            debug_assert_eq!(map[self.position], Tile::Box);
+            debug_assert_eq!(map[empty_space], Tile::Empty);
+            map[self.position] = Tile::Empty;
+            map[empty_space] = Tile::Box;
+        } else {
+            debug_assert_eq!(map[self.position], Tile::Empty);
+        }
+    }
+}
+
 pub fn part1(input: &Path) -> Result<()> {
-    let (warehouse, movements) = parse(input).context("parsing input")?;
-    println!("parsed with {} movements", movements.len());
+    let (mut warehouse, movements) = parse(input).context("parsing input")?;
+    let mut robot = Robot::extract_from(&mut warehouse)?;
+    for movement in movements {
+        robot.push(&mut warehouse, movement);
+    }
+    let sum_of_gps = sum_of_box_gps(&warehouse);
+    println!("sum of box gps: {sum_of_gps}");
     Ok(())
 }
 
