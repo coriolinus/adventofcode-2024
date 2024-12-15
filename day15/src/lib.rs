@@ -49,7 +49,7 @@ type Warehouse = aoclib::geometry::Map<Tile>;
 type WarehouseWide = aoclib::geometry::Map<TileWide>;
 
 fn widen(map: Warehouse) -> WarehouseWide {
-    let mut out = WarehouseWide::new(map.width(), map.height());
+    let mut out = WarehouseWide::new(map.width() * 2, map.height());
     for (point, &tile) in map.iter() {
         let left = Point::new(point.x * 2, point.y);
         let right = Point::new(point.x * 2 + 1, point.y);
@@ -206,8 +206,110 @@ impl Robot {
         }
     }
 
+    fn push_wide_horizontal(&mut self, map: &mut WarehouseWide, movement: Movement) {
+        debug_assert!(matches!(*movement, Direction::Left | Direction::Right));
+        // we can more or less use the same algorithm as in part 1 here
+        let mut empty_space = None;
+        let (dx, dy) = movement.deltas();
+        for point in map.project(self.position, dx, dy).skip(1) {
+            match map[point] {
+                TileWide::Robot => unreachable!("no extra robots in map"),
+                TileWide::BoxLeft | TileWide::BoxRight => {
+                    // no problem, we can keep going, our robot is strong and can push many boxes
+                }
+                TileWide::Wall => {
+                    // oh, no movement is possible because we're jammed up against a wall
+                    // (possibly through many boxes)
+                    return;
+                }
+                TileWide::Empty => {
+                    // we can push, so therefore we must
+                    empty_space = Some(point);
+                    break;
+                }
+            }
+        }
+
+        let empty_space = empty_space.expect("we can only get to this point in the code if we found an empty space or pushed off the map");
+
+        let mut reverse_projection = map.project(empty_space, -dx, dy).peekable();
+        while let Some(copy_into) = reverse_projection.next() {
+            let copy_from = *reverse_projection
+                .peek()
+                .expect("we break before getting to the wall");
+            map[copy_into] = map[copy_from];
+            if copy_from == self.position {
+                debug_assert_eq!(map[copy_from], TileWide::Empty);
+                break;
+            }
+        }
+        self.position += *movement;
+    }
+
+    fn can_push_wide_vertical(position: Point, map: &WarehouseWide, movement: Movement) -> bool {
+        // we need to consider a whole range of points to determine whether we can move or not
+        // let's be recursive
+        match map[position] {
+            TileWide::Robot => unreachable!("no extra robots on map"),
+            TileWide::Empty => true,
+            TileWide::Wall => false,
+            TileWide::BoxLeft => {
+                let next = position + *movement;
+                let right = next + Direction::Right;
+                Self::can_push_wide_vertical(next, map, movement)
+                    && Self::can_push_wide_vertical(right, map, movement)
+            }
+            TileWide::BoxRight => {
+                let next = position + *movement;
+                let left = next + Direction::Left;
+                Self::can_push_wide_vertical(next, map, movement)
+                    && Self::can_push_wide_vertical(left, map, movement)
+            }
+        }
+    }
+
+    fn push_boxes_wide_vertical(position: Point, map: &mut WarehouseWide, movement: Movement) {
+        match map[position] {
+            TileWide::Robot => unreachable!("no extra robots on map"),
+            TileWide::Wall => {
+                panic!("we should have ensured we could do this before trying to do it")
+            }
+            TileWide::BoxLeft => {
+                let next = position + *movement;
+                let right = next + Direction::Right;
+                Self::push_boxes_wide_vertical(next, map, movement);
+                Self::push_boxes_wide_vertical(right, map, movement);
+            }
+            TileWide::BoxRight => {
+                let next = position + *movement;
+                let left = next + Direction::Left;
+                Self::push_boxes_wide_vertical(next, map, movement);
+                Self::push_boxes_wide_vertical(left, map, movement);
+            }
+            TileWide::Empty => {
+                // no special action needed here
+            }
+        }
+        let from = position + movement.reverse();
+        map[position] = map[from];
+        // this ensures we don't leave partial boxes behind
+        map[from] = TileWide::Empty;
+    }
+
+    fn push_wide_vertical(&mut self, map: &mut WarehouseWide, movement: Movement) {
+        debug_assert!(matches!(*movement, Direction::Up | Direction::Down));
+        if Self::can_push_wide_vertical(self.position + *movement, map, movement) {
+            Self::push_boxes_wide_vertical(self.position + *movement, map, movement);
+            self.position += *movement;
+        }
+    }
+
     fn push_wide(&mut self, map: &mut WarehouseWide, movement: Movement) {
-        todo!()
+        if matches!(*movement, Direction::Left | Direction::Right) {
+            self.push_wide_horizontal(map, movement);
+        } else {
+            self.push_wide_vertical(map, movement);
+        }
     }
 }
 
@@ -225,9 +327,15 @@ pub fn part1(input: &Path) -> Result<()> {
 pub fn part2(input: &Path) -> Result<()> {
     let (warehouse, movements) = parse(input).context("parsing input")?;
     let mut warehouse = widen(warehouse);
+    // eprintln!("{warehouse}");
     let mut robot = Robot::extract_from_wide(&mut warehouse)?;
     for movement in movements {
+        // eprintln!("{movement:?}");
         robot.push_wide(&mut warehouse, movement);
+        // eprintln!(
+        //     "robot @ ({}, {}):\n{warehouse}",
+        //     robot.position.x, robot.position.y
+        // );
     }
     let sum_of_gps = sum_of_box_gps_wide(&warehouse);
     println!("sum of box gps (wide): {sum_of_gps}");
