@@ -137,14 +137,39 @@ impl<History> Reindeer<History> {
     }
 }
 
-/// Search the reindeer maze from Start to End and return the score
-// I'm doing this from memory and intuition, might not be pure djikstra
-fn djikstraish(maze: &ReindeerMaze) -> Option<u32> {
+type ActionQueue<H> = PriorityQueue<Reindeer<H>, Reverse<u32>>;
+
+fn initialize_queue<H>(maze: &ReindeerMaze) -> Option<(Point, ActionQueue<H>)>
+where
+    H: Default + Eq + std::hash::Hash + RecordHistory + Clone,
+{
     let start = maze
         .iter()
         .find_map(|(point, tile)| (*tile == Tile::Start).then_some(point))?;
     let mut queue = PriorityQueue::new();
-    queue.push(Reindeer::<()>::new(start), Reverse(0));
+    queue.push(Reindeer::<H>::new(start), Reverse(0));
+    // There is exactly one case where turning 180 degrees might potentially be useful:
+    // if the best path involves going west directly from the start. In all other cases, a path
+    // behind must necessarily have come from there at a lower cost, so there's no point in
+    // even investigating turning around.
+    //
+    // Let's handle the special case by hard-coding it.
+    {
+        let mut reverse_reindeer = Reindeer::<H>::new(start);
+        reverse_reindeer = reverse_reindeer.turn_left();
+        reverse_reindeer = reverse_reindeer.turn_left();
+        if maze[reverse_reindeer.ahead()] != Tile::Wall {
+            queue.push(reverse_reindeer.fwd(), Reverse(2001));
+        }
+    }
+
+    Some((start, queue))
+}
+
+/// Search the reindeer maze from Start to End and return the score
+// I'm doing this from memory and intuition, might not be pure djikstra
+fn djikstraish(maze: &ReindeerMaze) -> Option<u32> {
+    let (_start, mut queue) = initialize_queue::<()>(maze)?;
 
     while let Some((reindeer, Reverse(score))) = queue.pop() {
         match maze[reindeer.position] {
@@ -172,11 +197,7 @@ fn djikstraish(maze: &ReindeerMaze) -> Option<u32> {
 }
 
 fn tiles_on_best_paths(maze: &ReindeerMaze) -> Option<usize> {
-    let start = maze
-        .iter()
-        .find_map(|(point, tile)| (*tile == Tile::Start).then_some(point))?;
-    let mut queue = PriorityQueue::new();
-    queue.push(Reindeer::<ActionsPerformed>::new(start), Reverse(0));
+    let (start, mut queue) = initialize_queue::<ActionsPerformed>(maze)?;
 
     let mut lowest_score_by_point =
         aoclib::geometry::map::Map::<Option<u32>>::new(maze.width(), maze.height());
@@ -246,7 +267,7 @@ fn tiles_on_best_paths(maze: &ReindeerMaze) -> Option<usize> {
         return None;
     }
 
-    eprintln!("found {} distinct paths", best_histories.len());
+    // eprintln!("found {} distinct paths", best_histories.len());
 
     let mut visited_points = HashSet::new();
     for history in best_histories {
@@ -267,12 +288,16 @@ fn tiles_on_best_paths(maze: &ReindeerMaze) -> Option<usize> {
         );
     }
 
-    eprintln!(
-        "{}",
-        maze.to_string_with_override(|point, _tile| visited_points
-            .contains(&point)
-            .then_some("O".into()))
-    );
+    debug_assert!(!visited_points
+        .iter()
+        .any(|point| maze[*point] == Tile::Wall));
+
+    // eprintln!(
+    //     "{}",
+    //     maze.to_string_with_override(|point, _tile| visited_points
+    //         .contains(&point)
+    //         .then_some("O".into()))
+    // );
 
     Some(visited_points.len())
 }
