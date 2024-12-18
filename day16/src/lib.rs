@@ -311,6 +311,38 @@ pub fn part1(input: &Path) -> Result<()> {
 }
 
 // too high: 432
+//
+// Checked with someone else's solution, came up with 428. Haven't tried putting it into the website obviously,
+// because I did not come up with that answer. But that's a very confusing result.
+//
+// [Reddit] has been very helpful, with one comment in particular explaining a potential issue:
+// imagine a T where two potential paths approach. The leg of the T is winning! It will get there
+// a short handful of points before the cross of the T. But that's a problem: the leg of the T
+// necessarily has to turn at the intersection; the code as it stands records the arrival score
+// from the base of the T, so when it evaluates the path crossing the top of the T, that path
+// gives up there. We end up recording the incorrectly-shorter path, instead of the correct longer path.
+//
+// Probably the solution looks like this:
+//
+// - instead of recording one score at each visited point, record two: vertical and horizontal
+// - when checking whether to terminate early at a point, you now need to abort not if there is any lower score, but if:
+//   - there is a lower arrival score coming from the same direction as you, or
+//   - there is a lower arrival score coming from the opposite direction as you (backtracking is never helpful)
+//
+// With these two rules in place, the race at the T plays out like this:
+//
+// - head from the bottom of the T arrives first and records its score and provenance
+// - head from the bottom of the T adds successors turning left and right
+// - head from the left of the T arrives and records its score and provenance
+// - head from the left of the T adds successors proceeding straight, and turning right
+// - successor from the left has the lowest score, so proceeds forward, recording its score and provenance
+// - successor from the bottom going left discovers a lower score from the opposite direction and gives up
+// - successor from the bottom going right discovers a lower score from the same direction and gives up
+// - successor from the left going down discovers a lower score from the opposite direction and gives up
+//
+// I don't have time to implement that solution right now, but at least there is a path forward from here.
+//
+// [Reddit]: https://www.reddit.com/r/adventofcode/comments/1hfz425/2024_day_16_part_2rust/
 pub fn part2(input: &Path) -> Result<()> {
     let maze = <ReindeerMaze as TryFrom<&Path>>::try_from(input).context("parsing input")?;
     let best_paths_tiles = tiles_on_best_paths(&maze).context("no solution found")?;
