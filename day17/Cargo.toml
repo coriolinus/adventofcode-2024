@@ -1,0 +1,13 @@
+[package]
+name = "day17"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aoclib = { git = "https://github.com/coriolinus/aoclib.git" }
+clap = { version = "4.4.11", features = ["derive"] }
+color-eyre = "0.5.10"
+itertools = "0.13.0"
+regex = "1.11.1"
+rstest = "0.23.0"
+strum = { version = "0.26.3", features = ["derive"] }
