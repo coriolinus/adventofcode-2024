@@ -4,7 +4,12 @@ use color_eyre::{
     Result,
 };
 use priority_queue::PriorityQueue;
-use std::{cmp::Reverse, collections::HashSet, path::Path};
+use std::{
+    cmp::Reverse,
+    collections::HashSet,
+    ops::{Index, IndexMut},
+    path::Path,
+};
 
 #[derive(
     Debug, Default, Clone, Copy, PartialEq, Eq, parse_display::Display, parse_display::FromStr,
@@ -196,21 +201,50 @@ fn djikstraish(maze: &ReindeerMaze) -> Option<u32> {
     None
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+struct Scores {
+    vertical: Option<u32>,
+    horizontal: Option<u32>,
+}
+
+impl Index<Direction> for Scores {
+    type Output = Option<u32>;
+
+    fn index(&self, index: Direction) -> &Self::Output {
+        match index {
+            Direction::Right | Direction::Left => &self.horizontal,
+            Direction::Up | Direction::Down => &self.vertical,
+        }
+    }
+}
+
+impl IndexMut<Direction> for Scores {
+    fn index_mut(&mut self, index: Direction) -> &mut Self::Output {
+        match index {
+            Direction::Right | Direction::Left => &mut self.horizontal,
+            Direction::Up | Direction::Down => &mut self.vertical,
+        }
+    }
+}
+
+impl Scores {
+    fn min(&self) -> Option<u32> {
+        self.vertical.min(self.horizontal)
+    }
+}
+
 fn tiles_on_best_paths(maze: &ReindeerMaze) -> Option<usize> {
     let (start, mut queue) = initialize_queue::<ActionsPerformed>(maze)?;
 
     let mut lowest_score_by_point =
-        aoclib::geometry::map::Map::<Option<u32>>::new(maze.width(), maze.height());
+        aoclib::geometry::map::Map::<Scores>::new(maze.width(), maze.height());
 
     let mut best_histories = Vec::new();
 
     while let Some((reindeer, Reverse(score))) = queue.pop() {
         // eprintln!("{reindeer} @ {score}:");
-        match lowest_score_by_point[reindeer.position] {
-            None => lowest_score_by_point[reindeer.position] = Some(score),
-            Some(low_score) if low_score + 1000 == score => {
-                // we just turned, but we should still keep processing in order to move forward
-            }
+        match lowest_score_by_point[reindeer.position][reindeer.orientation] {
+            None => lowest_score_by_point[reindeer.position][reindeer.orientation] = Some(score),
             Some(low_score) => match low_score.cmp(&score) {
                 std::cmp::Ordering::Less => {
                     // nothing we can do from here will improve on the score/route we have already computed
@@ -230,6 +264,7 @@ fn tiles_on_best_paths(maze: &ReindeerMaze) -> Option<usize> {
         match maze[reindeer.position] {
             Tile::End
                 if lowest_score_by_point[reindeer.position]
+                    .min()
                     .map_or(true, |low_score| low_score == score) =>
             {
                 // eprintln!("reached the goal with score {score}");
@@ -310,11 +345,6 @@ pub fn part1(input: &Path) -> Result<()> {
     Ok(())
 }
 
-// too high: 432
-//
-// Checked with someone else's solution, came up with 428. Haven't tried putting it into the website obviously,
-// because I did not come up with that answer. But that's a very confusing result.
-//
 // [Reddit] has been very helpful, with one comment in particular explaining a potential issue:
 // imagine a T where two potential paths approach. The leg of the T is winning! It will get there
 // a short handful of points before the cross of the T. But that's a problem: the leg of the T
@@ -322,7 +352,7 @@ pub fn part1(input: &Path) -> Result<()> {
 // from the base of the T, so when it evaluates the path crossing the top of the T, that path
 // gives up there. We end up recording the incorrectly-shorter path, instead of the correct longer path.
 //
-// Probably the solution looks like this:
+// The solution looks like this:
 //
 // - instead of recording one score at each visited point, record two: vertical and horizontal
 // - when checking whether to terminate early at a point, you now need to abort not if there is any lower score, but if:
@@ -339,8 +369,6 @@ pub fn part1(input: &Path) -> Result<()> {
 // - successor from the bottom going left discovers a lower score from the opposite direction and gives up
 // - successor from the bottom going right discovers a lower score from the same direction and gives up
 // - successor from the left going down discovers a lower score from the opposite direction and gives up
-//
-// I don't have time to implement that solution right now, but at least there is a path forward from here.
 //
 // [Reddit]: https://www.reddit.com/r/adventofcode/comments/1hfz425/2024_day_16_part_2rust/
 pub fn part2(input: &Path) -> Result<()> {
