@@ -4,7 +4,7 @@ use color_eyre::{
 };
 use itertools::Itertools;
 use regex::Regex;
-use std::path::Path;
+use std::{collections::VecDeque, path::Path};
 
 type Register = u64;
 type ThreeBit = u8;
@@ -139,14 +139,10 @@ impl Computer {
     }
 
     /// Implement `Adv`, `Bdv`, `Cdv`
-    fn divide(&mut self, combo_operand: Register, store_idx: usize) {
-        let numerator = self.registers[0];
-        let denominator = 2_u64.pow(
-            combo_operand
-                .try_into()
-                .expect("combo operand should fit in 32 bits"),
-        );
-        self.registers[store_idx] = numerator / denominator;
+    ///
+    /// Note that dividing by `2 ** n` is equivalent to `>> n`
+    fn right_shift(&mut self, combo_operand: Register, store_idx: usize) {
+        self.registers[store_idx] = self.registers[0] >> combo_operand;
     }
 
     /// Process one instruction, updating internal state
@@ -159,9 +155,9 @@ impl Computer {
         };
         let instruction = Instruction::from_repr(instruction).context("invalid instruction")?;
         match instruction {
-            Instruction::Adv => self.divide(self.combo_operand()?, 0),
-            Instruction::Bdv => self.divide(self.combo_operand()?, 1),
-            Instruction::Cdv => self.divide(self.combo_operand()?, 2),
+            Instruction::Adv => self.right_shift(self.combo_operand()?, 0),
+            Instruction::Bdv => self.right_shift(self.combo_operand()?, 1),
+            Instruction::Cdv => self.right_shift(self.combo_operand()?, 2),
             Instruction::Bxl => self.registers[1] ^= u64::from(self.literal_operand()?),
             Instruction::Bxc => self.registers[1] ^= self.registers[2],
             Instruction::Bst => self.registers[1] = self.combo_operand()? & 0b111,
@@ -187,29 +183,126 @@ pub fn part1(input: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Apply a cycle of the program to A, returning B
+///
+/// based on manually decompiling my program
+///
+/// ```notrust
+/// while a != 0:
+///     b = a & 0b111
+///     b ^= 0b010
+///     c = a >> b
+///     b ^= c
+///     b ^= 0b111
+///     output b
+///     a >>= 3
+/// ```
+fn apply_cycle(a: Register) -> Register {
+    let mut b = a & 0b111;
+    b ^= 0b010;
+    let c = a >> b;
+    b ^= c;
+    b ^= 0b111;
+    b
+}
+
+struct SearchNode {
+    /// index from the right of current item in program
+    ///
+    /// gives us the expected output and a termination condition
+    right_index: usize,
+    /// value of A for the next operation
+    successor_a: Register,
+}
+
+fn solve_part2(computer: &Computer) -> Option<Register> {
+    let mut queue = VecDeque::new();
+    queue.push_back(SearchNode {
+        right_index: 0,
+        successor_a: 0,
+    });
+
+    let mut min_a = None;
+
+    while let Some(SearchNode {
+        right_index,
+        successor_a,
+    }) = queue.pop_front()
+    {
+        let index = computer.program.len() - 1 - right_index;
+        let expected_b = computer.program[index] as Register;
+
+        for three_bits in 0..8 {
+            let a = three_bits | (successor_a << 3);
+            let b = apply_cycle(a);
+
+            eprintln!("check: a           = {a:060b}");
+            eprintln!("       successor_a = {successor_a:060b}");
+            eprintln!("       {b} ==? {expected_b} (expected)");
+            eprintln!();
+
+            if b == expected_b {
+                if index == 0 {
+                    min_a = min_a.min(Some(a));
+                } else {
+                    queue.push_back(SearchNode {
+                        right_index: right_index + 1,
+                        successor_a: a,
+                    });
+                }
+            }
+        }
+    }
+
+    min_a
+}
+
 pub fn part2(input: &Path) -> Result<()> {
-    unimplemented!("input file: {:?}", input)
+    println!(
+        "WARNING! This is not a general solution! It just runs my particular input, backwards"
+    );
+    let input = std::fs::read_to_string(input).context("reading input file")?;
+    let mut computer = Computer::from_input(&input).context("initializing computer")?;
+    let a = solve_part2(&computer).context("no solution to part 2")?;
+    // check our results
+    debug_assert_eq!(
+        {
+            computer.registers[0] = a;
+            while computer.tick().context("processing an instruction")? {}
+            computer.output
+        },
+        computer.program,
+        "program must be a quine"
+    );
+    println!("value of a for quine: {a}");
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    mod part1 {
-        use crate::*;
-        use rstest::rstest;
+    use crate::*;
+    use rstest::rstest;
 
-        #[rstest]
-        #[case([729,0,0],[0,1,5,4,3,0].into(),"4,6,3,5,6,3,5,2,1,0")]
-        fn example(
-            #[case] registers: [Register; 3],
-            #[case] program: Vec<ThreeBit>,
-            #[case] expect: &str,
-        ) {
-            let mut computer = Computer::new(program);
-            computer.registers = registers;
-            // execute the whole program
-            while computer.tick().expect("this program should work") {}
-            let output = computer.prepare_output();
-            assert_eq!(output, expect);
-        }
+    #[rstest]
+    #[case::part1([729,0,0],[0,1,5,4,3,0].into(),"4,6,3,5,6,3,5,2,1,0")]
+    #[case::part2_quine([117440, 0, 0],[0,3,5,4,3,0].into(),"0,3,5,4,3,0")]
+    fn example(
+        #[case] registers: [Register; 3],
+        #[case] program: Vec<ThreeBit>,
+        #[case] expect: &str,
+    ) {
+        let mut computer = Computer::new(program);
+        computer.registers = registers;
+        // execute the whole program
+        while computer.tick().expect("this program should work") {}
+        let output = computer.prepare_output();
+        assert_eq!(output, expect);
+    }
+
+    #[test]
+    fn example_solve_part2() {
+        let computer = Computer::new([0, 3, 5, 4, 3, 0].into());
+        let computed_a = solve_part2(&computer);
+        assert_eq!(computed_a, Some(117440));
     }
 }
