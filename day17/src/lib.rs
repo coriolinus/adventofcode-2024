@@ -130,6 +130,14 @@ impl Computer {
         Ok(value)
     }
 
+    fn combo_operand_symbolic(operand: ThreeBit) -> String {
+        match operand {
+            0..=3 => operand.to_string(),
+            4..=6 => ((operand - 4 + b'A') as char).to_string(),
+            _ => format!("INVALID OPERAND: {operand}"),
+        }
+    }
+
     fn next_ip(&self, instruction: Instruction) -> usize {
         if instruction == Instruction::Jnz && self.registers[0] != 0 {
             self.program[self.instruction_pointer + 1] as _
@@ -168,6 +176,19 @@ impl Computer {
         Ok(true)
     }
 
+    fn symbolic(instruction: Instruction, operand: ThreeBit) -> String {
+        match instruction {
+            Instruction::Adv => format!("A >>= {}", Self::combo_operand_symbolic(operand)),
+            Instruction::Bdv => format!("B = A >> {}", Self::combo_operand_symbolic(operand)),
+            Instruction::Cdv => format!("C = A >> {}", Self::combo_operand_symbolic(operand)),
+            Instruction::Bxl => format!("B ^= {operand}"),
+            Instruction::Bxc => "B ^= C".into(),
+            Instruction::Bst => format!("B = 0b111 & {}", Self::combo_operand_symbolic(operand)),
+            Instruction::Out => format!("output {}", Self::combo_operand_symbolic(operand)),
+            Instruction::Jnz => format!("if A != 0 goto {operand}"),
+        }
+    }
+
     fn prepare_output(&self) -> String {
         self.output.iter().map(ToString::to_string).join(",")
     }
@@ -185,25 +206,23 @@ pub fn part1(input: &Path) -> Result<()> {
 
 /// Apply a cycle of the program to A, returning B
 ///
-/// based on manually decompiling my program
+/// based on decompiling my program
 ///
 /// ```notrust
-/// while a != 0:
-///     b = a & 0b111
-///     b ^= 0b010
-///     c = a >> b
-///     b ^= c
-///     b ^= 0b111
-///     output b
-///     a >>= 3
+/// while A != 0:
+///     B = 0b111 & A
+///     B ^= 2
+///     C = A >> B
+///     B ^= C
+///     B ^= 3
+///     output B
+///     A >>= 3
 /// ```
 fn apply_cycle(a: Register) -> Register {
-    let mut b = a & 0b111;
-    b ^= 0b010;
+    let mut b = (a & 0b111) ^ 2;
     let c = a >> b;
-    b ^= c;
-    b ^= 0b111;
-    b
+    b ^= c ^ 3;
+    b & 0b111
 }
 
 struct SearchNode {
@@ -236,12 +255,11 @@ fn solve_part2(computer: &Computer) -> Option<Register> {
             let a = three_bits | (successor_a << 3);
             let b = apply_cycle(a);
 
-            eprintln!("check: a           = {a:060b}");
-            eprintln!("       successor_a = {successor_a:060b}");
-            eprintln!("       {b} ==? {expected_b} (expected)");
-            eprintln!();
-
             if b == expected_b {
+                eprintln!("check: a = {a:060b} ({a})");
+                eprintln!("       b = {b:060b} ({b})");
+                eprintln!();
+
                 if index == 0 {
                     min_a = min_a.min(Some(a));
                 } else {
@@ -263,6 +281,13 @@ pub fn part2(input: &Path) -> Result<()> {
     );
     let input = std::fs::read_to_string(input).context("reading input file")?;
     let mut computer = Computer::from_input(&input).context("initializing computer")?;
+
+    // for chunk in computer.program.chunks_exact(2) {
+    //     let instruction = Instruction::from_repr(chunk[0]).context("parsing instruction")?;
+    //     let operand = chunk[1];
+    //     eprintln!("{}", Computer::symbolic(instruction, operand));
+    // }
+
     let a = solve_part2(&computer).context("no solution to part 2")?;
     // check our results
     debug_assert_eq!(
@@ -301,8 +326,51 @@ mod tests {
 
     #[test]
     fn example_solve_part2() {
+        eprintln!("ultimately expect:   {:060b}", 117440);
         let computer = Computer::new([0, 3, 5, 4, 3, 0].into());
         let computed_a = solve_part2(&computer);
         assert_eq!(computed_a, Some(117440));
+    }
+
+    #[test]
+    fn test_apply_cycle() {
+        let input = include_str!("../../inputs/input-17.txt");
+        let mut computer = Computer::from_input(input).unwrap();
+
+        for a in 0..=0b111_111 {
+            computer.output.clear();
+            computer.registers = [a, 0, 0];
+            computer.instruction_pointer = 0;
+
+            let computer_calculates = {
+                for _ in 0..6 {
+                    computer.tick().unwrap();
+                }
+                computer.output[0] as Register
+            };
+            let apply_calculates = apply_cycle(a);
+
+            eprintln!("a: {a:06b} ({a})");
+            eprintln!("  computer b: {computer_calculates:06b} ({computer_calculates})");
+            eprintln!("  apply b:    {apply_calculates:06b} ({apply_calculates})");
+            assert_eq!(apply_calculates, computer_calculates);
+        }
+    }
+
+    #[test]
+    fn example_apply_cycle_manual() {
+        let expect = 117440;
+        // 000 011 100 101 011 000 000
+        eprintln!("expect: {expect:018b}");
+        let mut a = expect;
+        let mut outputs = Vec::new();
+        while a != 0 {
+            let b = apply_cycle(a);
+            eprintln!("{b:03b} ({b})");
+            a >>= 3;
+            outputs.push(b);
+        }
+
+        assert_eq!(outputs, vec![0, 3, 5, 4, 3, 0]);
     }
 }
